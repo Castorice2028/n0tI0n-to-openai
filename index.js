@@ -206,9 +206,17 @@ async function streamNotionResponse(notionRequestBody, res, isStreamingMode = tr
     let chunkCount = 0;
     let totalChars = 0;
     let fullResponseContent = ''; // 用于非流式响应模式
+    let lineBuffer = ''; // 添加缓冲区用于处理不完整的JSON
     
     response.data.on('data', (chunk) => {
-      const lines = chunk.toString().split('\n');
+      const chunkStr = chunk.toString();
+      // 将新数据添加到缓冲区
+      lineBuffer += chunkStr;
+      
+      // 尝试按行分割并处理完整的JSON
+      let lines = lineBuffer.split('\n');
+      // 保留最后一行，可能是不完整的
+      lineBuffer = lines.pop() || '';
       
       for (const line of lines) {
         if (!line.trim()) continue;
@@ -240,12 +248,36 @@ async function streamNotionResponse(notionRequestBody, res, isStreamingMode = tr
             break;
           }
         } catch (error) {
-          // 忽略解析错误
+          // 解析错误，但我们已经将不完整的行保留在缓冲区中
+          console.log(chalk.yellow(`[解析警告] ${error.message.substring(0, 100)}`));
         }
       }
     });
     
     response.data.on('end', () => {
+      // 处理缓冲区中剩余的数据
+      if (lineBuffer.trim()) {
+        try {
+          const data = JSON.parse(lineBuffer);
+          if (data.type === 'markdown-chat' && typeof data.value === 'string') {
+            const contentChunk = data.value;
+            
+            if (contentChunk) {
+              fullResponseContent += contentChunk;
+              
+              if (isStreamingMode) {
+                const chunk = createChatCompletionChunk(
+                  [createChoice(createChoiceDelta(contentChunk))]
+                );
+                res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+              }
+            }
+          }
+        } catch (error) {
+          console.log(chalk.yellow(`[结束时解析警告] 无法解析剩余数据: ${error.message.substring(0, 100)}`));
+        }
+      }
+      
       const duration = Date.now() - startTime;
       
       if (isStreamingMode) {
