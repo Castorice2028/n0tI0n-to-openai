@@ -1,6 +1,6 @@
 # Notion API 代理服务 (Node.js版本)
 
-这是Python版本[notion2api](../)的Node.js重构版本，可以将Notion的AI接口转换为OpenAI兼容的API格式。
+这是Python版本[notion2api](https://github.com/gzzhongqi/notion2api)的Node.js重构版本，可以将Notion的AI接口转换为OpenAI兼容的API格式。
 
 ## 功能特点
 
