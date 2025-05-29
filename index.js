@@ -150,7 +150,7 @@ function buildNotionRequest(requestData) {
   return createNotionRequestBody(NOTION_SPACE_ID, transcript);
 }
 
-async function streamNotionResponse(notionRequestBody, res, isStreamingMode = true) {
+async function streamNotionResponse(notionRequestBody, res, isStreamingMode = true, req) {
   // 设置响应头
   if (isStreamingMode) {
     res.setHeader('Content-Type', 'text/event-stream');
@@ -244,6 +244,23 @@ async function streamNotionResponse(notionRequestBody, res, isStreamingMode = tr
       }
     });
     
+    // 处理请求被客户端中断的情况
+    req.on('close', () => {
+      if (!res.writableEnded) {
+        console.log(chalk.yellow(`[${isStreamingMode ? '流' : '非流'}] 连接已关闭`));
+        // 终止底层请求
+        response.data.destroy();
+      }
+    });
+    
+    // 处理响应中断
+    response.data.on('aborted', () => {
+      console.log(chalk.yellow(`[${isStreamingMode ? '流' : '非流'}] 连接已中断`));
+      if (!res.writableEnded) {
+        res.end();
+      }
+    });
+    
     response.data.on('end', () => {
       const duration = Date.now() - startTime;
       
@@ -270,12 +287,26 @@ async function streamNotionResponse(notionRequestBody, res, isStreamingMode = tr
     
     response.data.on('error', (error) => {
       console.error(chalk.red(`[${isStreamingMode ? '流' : '非流'}] 错误: ${error.message}`));
-      res.status(500).json({
-        error: {
-          message: `处理Notion API响应时出错: ${error.message}`,
-          type: "server_error"
+      
+      // 检查响应是否已经发送或结束
+      if (!res.headersSent && !res.writableEnded) {
+        res.status(500).json({
+          error: {
+            message: `处理Notion API响应时出错: ${error.message}`,
+            type: "server_error"
+          }
+        });
+      } else if (isStreamingMode && !res.writableEnded) {
+        // 如果头已发送但流未结束，尝试写入错误信息并结束流
+        try {
+          res.write(`data: ${JSON.stringify({error: `处理出错: ${error.message}`})}\n\n`);
+          res.write('data: [DONE]\n\n');
+          res.end();
+        } catch (err) {
+          // 忽略进一步的写入错误
+          console.error(chalk.red(`[流] 无法写入错误信息: ${err.message}`));
         }
-      });
+      }
     });
   } catch (error) {
     console.error(chalk.red(`[${isStreamingMode ? '流' : '非流'}] 连接错误: ${error.message}`));
@@ -332,7 +363,7 @@ app.post('/v1/chat/completions', authenticate, async (req, res) => {
     
     if (requestData.stream) {
       // 处理流式响应
-      return streamNotionResponse(notionRequestBody, res, true);
+      return streamNotionResponse(notionRequestBody, res, true, req);
     } else {
       // 非流式响应 - 使用同一个函数但采用非流式模式
       const startTime = Date.now();
@@ -380,7 +411,7 @@ app.post('/v1/chat/completions', authenticate, async (req, res) => {
       };
       
       // 使用同一个函数，但指定非流式模式
-      return streamNotionResponse(notionRequestBody, mockRes, false);
+      return streamNotionResponse(notionRequestBody, mockRes, false, req);
     }
   } catch (error) {
     console.error(`处理请求时出错: ${error.message}`);
