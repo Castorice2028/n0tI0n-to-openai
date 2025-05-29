@@ -228,13 +228,7 @@ async function streamNotionResponse(notionRequestBody, res, isStreamingMode = tr
               );
               
               if (isStreamingMode) {
-                try {
-                  res.write(`data: ${JSON.stringify(chunk)}\n\n`);
-                } catch (writeError) {
-                  console.error(chalk.red(`[流] 写入错误: ${writeError.message}`));
-                  // 连接可能已关闭，中止处理
-                  return;
-                }
+                res.write(`data: ${JSON.stringify(chunk)}\n\n`);
               }
               fullResponseContent += contentChunk;
             }
@@ -259,22 +253,13 @@ async function streamNotionResponse(notionRequestBody, res, isStreamingMode = tr
           [createChoice(createChoiceDelta(), 'stop')]
         );
         
-        try {
-          // 只有在响应未结束时写入最终数据
-          if (!res.headersSent && !res.finished) {
-            res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
-            res.write('data: [DONE]\n\n');
-            
-            // 只在流式模式下输出完成日志
-            console.log(chalk.green(`[流] 完成: ${totalChars}字符, ${duration}ms`));
-            
-            res.end();
-          }
-        } catch (endError) {
-          console.error(chalk.red(`[流] 结束错误: ${endError.message}`));
-          // 尝试静默关闭响应
-          try { if (!res.finished) res.end(); } catch (e) {}
-        }
+        res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+        res.write('data: [DONE]\n\n');
+        
+        // 只在流式模式下输出完成日志
+        console.log(chalk.green(`[流] 完成: ${totalChars}字符, ${duration}ms`));
+        
+        res.end();
       } else {
         // 在非流式模式下，通过回调返回收集到的完整内容
         if (res.sendFullContent) {
@@ -285,43 +270,32 @@ async function streamNotionResponse(notionRequestBody, res, isStreamingMode = tr
     
     response.data.on('error', (error) => {
       console.error(chalk.red(`[${isStreamingMode ? '流' : '非流'}] 错误: ${error.message}`));
-      
-      // 检查响应是否已结束，如果已结束则不再尝试发送错误响应
-      if (!res.headersSent) {
-        res.status(500).json({
-          error: {
-            message: `处理Notion API响应时出错: ${error.message}`,
-            type: "server_error"
-          }
-        });
-      }
+      res.status(500).json({
+        error: {
+          message: `处理Notion API响应时出错: ${error.message}`,
+          type: "server_error"
+        }
+      });
     });
   } catch (error) {
     console.error(chalk.red(`[${isStreamingMode ? '流' : '非流'}] 连接错误: ${error.message}`));
     
     if (error.response) {
       console.error(chalk.red(`[${isStreamingMode ? '流' : '非流'}] Notion API响应码: ${error.response.status}`));
-      
-      // 检查响应是否已经发送过头部
-      if (!res.headersSent) {
-        return res.status(error.response.status).json({
-          error: {
-            message: `Notion API错误: ${error.message}`,
-            type: "api_error"
-          }
-        });
-      }
-    }
-    
-    // 检查响应是否已经发送过头部
-    if (!res.headersSent) {
-      return res.status(500).json({
+      return res.status(error.response.status).json({
         error: {
-          message: `连接到Notion API时出错: ${error.message}`,
-          type: "connection_error"
+          message: `Notion API错误: ${error.message}`,
+          type: "api_error"
         }
       });
     }
+    
+    return res.status(500).json({
+      error: {
+        message: `连接到Notion API时出错: ${error.message}`,
+        type: "connection_error"
+      }
+    });
   }
 }
 
@@ -374,17 +348,8 @@ app.post('/v1/chat/completions', authenticate, async (req, res) => {
         json: (data) => {
           res.json(data);
         },
-        // 添加headersSent属性，用于检查响应头是否已发送
-        get headersSent() {
-          return res.headersSent;
-        },
         // 当收集完整内容后的回调函数
         sendFullContent: (fullContent) => {
-          // 检查响应是否已经发送
-          if (res.headersSent) {
-            return;
-          }
-          
           // 构建最终的OpenAI兼容非流式响应
           const responseJson = {
             id: `chatcmpl-${uuidv4()}`,
