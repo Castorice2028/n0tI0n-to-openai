@@ -1,0 +1,21 @@
+{
+  "name": "notion2api",
+  "version": "1.0.0",
+  "description": "Node.js 版本的Notion API代理服务，模拟OpenAI API接口",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "axios": "^1.6.2",
+    "uuid": "^9.0.1",
+    "crypto": "^1.0.1",
+    "chalk": "^4.1.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+} 
