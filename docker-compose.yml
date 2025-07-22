@@ -1,0 +1,36 @@
+# Docker Compose文件用于部署Notion API代理服务
+
+services:
+  notion-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: notion-api-proxy
+    ports:
+      - "7860:7860"
+    environment:
+      # 必需的环境变量
+      - NOTION_COOKIE=${NOTION_COOKIE}
+      - NOTION_SPACE_ID=${NOTION_SPACE_ID}
+      - PROXY_AUTH_TOKEN=${PROXY_AUTH_TOKEN}
+      # 可选的环境变量
+      - NOTION_ACTIVE_USER_HEADER=${NOTION_ACTIVE_USER_HEADER}
+      - PORT=${PORT:-7860}
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "const http = require('http'); http.get('http://localhost:7860/v1/models', {headers: {'Authorization': 'Bearer ' + process.env.PROXY_AUTH_TOKEN}}, (res) => { process.exit(res.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      # 可选：挂载日志目录（如果需要持久化日志）
+      - ./logs:/app/logs
+    networks:
+      - notion-proxy-network
+
+networks:
+  notion-proxy-network:
+    driver: bridge
